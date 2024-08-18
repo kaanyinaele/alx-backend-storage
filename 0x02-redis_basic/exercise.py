@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-This module defines a Cache class with input/output history tracking using Redis.
+This module defines a Cache class with input/output history tracking and replay functionality using Redis.
 """
 import redis
 import uuid
@@ -41,6 +41,28 @@ def call_history(method: Callable) -> Callable:
         return output
 
     return wrapper
+
+def replay(method: Callable) -> None:
+    """
+    Display the history of calls of a particular function.
+
+    Args:
+        method: The method whose history to display.
+
+    Returns:
+        None
+    """
+    input_key = f"{method.__qualname__}:inputs"
+    output_key = f"{method.__qualname__}:outputs"
+    redis_instance = method.__self__._redis
+
+    inputs = redis_instance.lrange(input_key, 0, -1)
+    outputs = redis_instance.lrange(output_key, 0, -1)
+
+    print(f"{method.__qualname__} was called {len(inputs)} times:")
+
+    for inp, out in zip(inputs, outputs):
+        print(f"{method.__qualname__}(*{inp.decode('utf-8')}) -> {out.decode('utf-8')}")
 
 class Cache:
     def __init__(self):
