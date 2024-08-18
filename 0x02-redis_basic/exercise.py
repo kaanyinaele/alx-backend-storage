@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-This module defines a Cache class with a method call counter using Redis.
+This module defines a Cache class with input/output history tracking using Redis.
 """
 import redis
 import uuid
@@ -8,21 +8,38 @@ from typing import Union, Callable
 import functools
 
 def count_calls(method: Callable) -> Callable:
+    """Decorator that counts the number of calls to a method."""
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        key = method.__qualname__
+        self._redis.incr(key)
+        return method(self, *args, **kwargs)
+    return wrapper
+
+def call_history(method: Callable) -> Callable:
     """
-    A decorator that counts the number of calls to a method.
+    A decorator that stores the history of inputs and outputs for a method.
 
     Args:
         method: The method to be decorated.
 
     Returns:
-        A wrapped function that increments a Redis counter each time the method is called.
+        A wrapped function that logs inputs and outputs to Redis lists.
     """
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
-        """Wrapper function to increment the call count in Redis."""
-        key = method.__qualname__
-        self._redis.incr(key)
-        return method(self, *args, **kwargs)
+        input_key = f"{method.__qualname__}:inputs"
+        output_key = f"{method.__qualname__}:outputs"
+
+        # Store the input arguments in Redis
+        self._redis.rpush(input_key, str(args))
+
+        # Execute the original method and store the output
+        output = method(self, *args, **kwargs)
+        self._redis.rpush(output_key, str(output))
+
+        return output
+
     return wrapper
 
 class Cache:
@@ -32,6 +49,7 @@ class Cache:
         self._redis.flushdb()
 
     @count_calls
+    @call_history
     def store(self, data: Union[str, bytes, int, float]) -> str:
         """
         Store the given data in Redis with a randomly generated key.
@@ -47,16 +65,7 @@ class Cache:
         return key
 
     def get(self, key: str, fn: Callable = None) -> Union[str, bytes, int, float, None]:
-        """
-        Retrieve data from Redis and optionally apply a conversion function.
-
-        Args:
-            key: The key of the data to retrieve.
-            fn: A callable to convert the data to the desired format.
-
-        Returns:
-            The data stored in Redis, potentially converted by fn, or None if the key does not exist.
-        """
+        """Retrieve data from Redis and optionally apply a conversion function."""
         data = self._redis.get(key)
         if data is not None and fn is not None:
             return fn(data)
