@@ -1,10 +1,29 @@
 #!/usr/bin/env python3
 """
-This module defines a Cache class to store and retrieve data from Redis.
+This module defines a Cache class with a method call counter using Redis.
 """
 import redis
 import uuid
-from typing import Union, Callable, Optional
+from typing import Union, Callable
+import functools
+
+def count_calls(method: Callable) -> Callable:
+    """
+    A decorator that counts the number of calls to a method.
+
+    Args:
+        method: The method to be decorated.
+
+    Returns:
+        A wrapped function that increments a Redis counter each time the method is called.
+    """
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        """Wrapper function to increment the call count in Redis."""
+        key = method.__qualname__
+        self._redis.incr(key)
+        return method(self, *args, **kwargs)
+    return wrapper
 
 class Cache:
     def __init__(self):
@@ -12,6 +31,7 @@ class Cache:
         self._redis = redis.Redis()
         self._redis.flushdb()
 
+    @count_calls
     def store(self, data: Union[str, bytes, int, float]) -> str:
         """
         Store the given data in Redis with a randomly generated key.
@@ -26,7 +46,7 @@ class Cache:
         self._redis.set(key, data)
         return key
 
-    def get(self, key: str, fn: Optional[Callable] = None) -> Union[str, bytes, int, float, None]:
+    def get(self, key: str, fn: Callable = None) -> Union[str, bytes, int, float, None]:
         """
         Retrieve data from Redis and optionally apply a conversion function.
 
@@ -42,27 +62,11 @@ class Cache:
             return fn(data)
         return data
 
-    def get_str(self, key: str) -> Optional[str]:
-        """
-        Retrieve a string from Redis.
-
-        Args:
-            key: The key of the data to retrieve.
-
-        Returns:
-            The data as a string, or None if the key does not exist.
-        """
+    def get_str(self, key: str) -> Union[str, None]:
+        """Retrieve a string from Redis."""
         return self.get(key, fn=lambda d: d.decode("utf-8"))
 
-    def get_int(self, key: str) -> Optional[int]:
-        """
-        Retrieve an integer from Redis.
-
-        Args:
-            key: The key of the data to retrieve.
-
-        Returns:
-            The data as an integer, or None if the key does not exist.
-        """
+    def get_int(self, key: str) -> Union[int, None]:
+        """Retrieve an integer from Redis."""
         return self.get(key, fn=int)
 
